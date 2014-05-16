@@ -1,4 +1,5 @@
-jim-nacl
-========
+jim-lzf
+=======
 
-NaCl extension for Jim TCL (using TweetNacl)
+TweetNACL extension for JimTCL
+
