@@ -1,13 +1,28 @@
 
 #include <jim.h>
+#include <string.h>
 
 #include "tweetnacl.h"
 
-static void _hexdump(const char *s,char *h,int n) {
+static Jim_Obj *Jim_EmptyString(Jim_Interp *interp, int length) {
+    Jim_Obj *empty = Jim_NewObj(interp);
+    empty->bytes = Jim_Alloc(length + 1);
+    empty->length = length;
+    empty->typePtr = NULL;
+    memset(empty->bytes, 0, length);
+    return empty;
+}
+
+static Jim_Obj *Jim_HexString(Jim_Interp *interp, Jim_Obj *s) {
     int i;
-    for (i=0; i<n; i++) {
-        sprintf(h+(2*i),"%02x",s[i]);
+    int len = Jim_Length(s);
+    Jim_Obj *hex = Jim_EmptyString(interp,2 * len);
+
+    for (i=0; i<len; i++) {
+        sprintf(hex->bytes+(2*i),"%02x",s->bytes[i]);
     }
+
+    return hex;
 }
 
 static int Hexdump_Cmd(Jim_Interp *interp, int argc,
@@ -17,19 +32,8 @@ static int Hexdump_Cmd(Jim_Interp *interp, int argc,
         return JIM_ERR;
     }
 
-    int i;
-    int n = Jim_Length(argv[1]);
-    const char *s = Jim_String(argv[1]);
+    Jim_SetResult(interp,Jim_HexString(interp,argv[1]));
 
-    void *h = Jim_Alloc(2*n);
-    if (h == NULL) {
-        Jim_SetResultString(interp, "Jim_Alloc Error", -1);
-        return JIM_ERR;
-    }
-
-    _hexdump(s,h,n);
-
-    Jim_SetResultString(interp,h,2*n);
     return JIM_OK;
 }
 
@@ -46,15 +50,36 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
         return JIM_ERR;
     }
 
-    void *r = Jim_Alloc(len);
-    if (r == NULL) {
-        Jim_SetResultString(interp, "Jim_Alloc Error", -1);
+    Jim_Obj *random = Jim_EmptyString(interp,len);
+
+    randombytes(random->bytes,len);
+
+    Jim_SetResult(interp,random);
+
+    return JIM_OK;
+}
+
+static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    if (argc != 4) {
+        Jim_WrongNumArgs(interp,1,argv,"<key> <nonce> <message>");
         return JIM_ERR;
     }
 
-    randombytes(r,len);
+    Jim_Obj *key = argv[1];
+    Jim_Obj *nonce = argv[2];
+    Jim_Obj *cipher = argv[3];
+    Jim_Obj *msg= Jim_EmptyString(interp,cipher->length);
 
-    Jim_SetResult(interp,Jim_NewStringObjNoAlloc(interp,r,len));
+    crypto_secretbox_open(msg->bytes,
+                          cipher->bytes,
+                          cipher->length,
+                          nonce->bytes,
+                          key->bytes);
+
+    Jim_SetResult(interp,msg);
+
+    //Jim_Free(msg);
 
     return JIM_OK;
 }
@@ -70,7 +95,7 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     }
 
     if (argc != 3) {
-        Jim_WrongNumArgs(interp,1,argv,"[-hex] <key> <data>");
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <key> <message>");
         return JIM_ERR;
     }
 
@@ -82,40 +107,35 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         return JIM_ERR;
     }
 
-    Jim_Obj *nonce,*enc,*result;
+    Jim_Obj *key = argv[1];
+    Jim_Obj *msg = argv[2];
+    int len = Jim_Length(msg);
 
-    unsigned char n[crypto_secretbox_NONCEBYTES];
-    randombytes(n,crypto_secretbox_NONCEBYTES);
+    Jim_Obj *nonce = Jim_EmptyString(interp,crypto_secretbox_NONCEBYTES);
+    Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *cipher = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
 
-    int len = Jim_Length(argv[2]);
+    randombytes(nonce->bytes,crypto_secretbox_NONCEBYTES);
+    memcpy(msg_pad->bytes + crypto_secretbox_ZEROBYTES,msg->bytes,len);
 
-    void *z = Jim_Alloc(len);
-    if (z == NULL) {
-        Jim_SetResultString(interp, "Jim_Alloc Error", -1);
-        return JIM_ERR;
-    }
-
-    crypto_secretbox(z,Jim_String(argv[2]),len,n,Jim_String(argv[1]));
-    
-    result = Jim_NewListObj(interp,NULL,0);
+    crypto_secretbox(cipher->bytes,
+                     msg_pad->bytes,
+                     msg_pad->length,
+                     nonce->bytes,
+                     key->bytes);
+            
+    Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
     if (hex == 1) {
-        void *hn = Jim_Alloc(2*crypto_secretbox_NONCEBYTES);
-        void *hz = Jim_Alloc(2*len);
-        if (hn == NULL || hz == NULL) {
-            Jim_SetResultString(interp, "Jim_Alloc Error", -1);
-            return JIM_ERR;
-        }
-        _hexdump(n,hn,crypto_secretbox_NONCEBYTES);
-        _hexdump(z,hz,len);
-        nonce = Jim_NewStringObjNoAlloc(interp,hn,crypto_secretbox_NONCEBYTES*2);
-        enc = Jim_NewStringObjNoAlloc(interp,z,len*2);
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,nonce)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,cipher)); 
     } else {
-        nonce = Jim_NewStringObj(interp,n,crypto_secretbox_NONCEBYTES);
-        enc = Jim_NewStringObj(interp,z,len);
+        Jim_ListAppendElement(interp,result,nonce); 
+        Jim_ListAppendElement(interp,result,cipher); 
     }
 
-    Jim_ListAppendElement(interp,result,nonce); 
-    Jim_ListAppendElement(interp,result,enc); 
+    Jim_Free(msg_pad);
+    //Jim_Free(nonce);
+    //Jim_Free(cipher);
 
     Jim_SetResult(interp,result);
     return JIM_OK;
@@ -125,6 +145,7 @@ Jim_naclInit(Jim_Interp *interp)
 {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox", SecretBox_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "secretbox_open", SecretBoxOpen_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
     return JIM_OK;
 }
