@@ -70,7 +70,6 @@ static Jim_Obj *Jim_Unhex(Jim_Interp *interp, Jim_Obj *hex) {
    }
 }
 
-
 static int Hexdump_Cmd(Jim_Interp *interp, int argc,
                                    Jim_Obj *const argv[]) {
     if (argc != 2) {
@@ -142,22 +141,26 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]
            cipher->bytes,
            cipher->length);
 
-    crypto_secretbox_open(msg_pad->bytes,
-                          cipher_pad->bytes,
-                          pad_len,
-                          nonce->bytes,
-                          key->bytes);
+    int err = crypto_secretbox_open(msg_pad->bytes,
+                                    cipher_pad->bytes,
+                                    pad_len,
+                                    nonce->bytes,
+                                    key->bytes);
 
-    Jim_Obj *msg = Jim_NewStringObj(interp,
+    if (err == 0) {
+        Jim_Obj *msg = Jim_NewStringObj(interp,
                         msg_pad->bytes + crypto_secretbox_ZEROBYTES,
                         msg_pad->length - crypto_secretbox_ZEROBYTES);
 
-    Jim_SetResult(interp,msg);
+        Jim_SetResult(interp,msg);
+    } else {
+        Jim_SetResultString(interp,"ERROR: Invalid secretbox",-1);
+    }
 
     Jim_DecrRefCount(interp,cipher_pad);
     Jim_DecrRefCount(interp,msg_pad);
 
-    return JIM_OK;
+    return (err == 0) ? JIM_OK : JIM_ERR;
 }
 
 static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
@@ -201,13 +204,15 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
                      key->bytes);
 
     Jim_Obj *cipher = Jim_NewStringObj(interp,
-                           cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
-                           cipher_pad->length - crypto_secretbox_BOXZEROBYTES);
+                       cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
+                       cipher_pad->length - crypto_secretbox_BOXZEROBYTES);
 
     Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
     if (hex == 1) {
         Jim_ListAppendElement(interp,result,Jim_HexString(interp,nonce)); 
         Jim_ListAppendElement(interp,result,Jim_HexString(interp,cipher)); 
+        Jim_DecrRefCount(interp,nonce);
+        Jim_DecrRefCount(interp,cipher);
     } else {
         Jim_ListAppendElement(interp,result,nonce); 
         Jim_ListAppendElement(interp,result,cipher); 
@@ -221,13 +226,84 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 }
 
+static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 2) {
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <message>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *msg = argv[1];
+
+    Jim_Obj *hash = Jim_EmptyString(interp,crypto_hash_BYTES);
+
+    crypto_hash(hash->bytes,msg->bytes,msg->length);
+
+    if (hex == 1) {
+        Jim_SetResult(interp,Jim_HexString(interp,hash));
+        Jim_DecrRefCount(interp,hash);
+    } else {
+        Jim_SetResult(interp,hash);
+    }
+
+    return JIM_OK;
+}
+
+static int Keypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 1) {
+        Jim_WrongNumArgs(interp,1,argv,"");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *pk = Jim_EmptyString(interp,crypto_box_PUBLICKEYBYTES);
+    Jim_Obj *sk = Jim_EmptyString(interp,crypto_box_SECRETKEYBYTES);
+
+    printf("Start\n");
+
+    crypto_box_keypair(pk->bytes,sk->bytes);
+
+    printf("Done\n");
+
+    Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
+
+    if (hex == 1) {
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,pk)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,sk)); 
+        Jim_DecrRefCount(interp,pk);
+        Jim_DecrRefCount(interp,sk);
+    } else {
+        Jim_ListAppendElement(interp,result,pk); 
+        Jim_ListAppendElement(interp,result,sk); 
+    }
+
+    return JIM_OK;
+}
+
 Jim_naclInit(Jim_Interp *interp)
 {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "hash", Hash_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "keypair", Keypair_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox", SecretBox_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox_open", SecretBoxOpen_Cmd, NULL, NULL);
-    Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
-    return JIM_OK;
 }
 
