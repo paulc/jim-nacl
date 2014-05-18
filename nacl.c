@@ -4,12 +4,14 @@
 
 #include "tweetnacl.h"
 
+#define rc(x) printf("Ref Count <%s>: %d\n",#x,x->refCount)
+
 static Jim_Obj *Jim_EmptyString(Jim_Interp *interp, int length) {
     Jim_Obj *empty = Jim_NewObj(interp);
     empty->bytes = Jim_Alloc(length + 1);
     empty->length = length;
     empty->typePtr = NULL;
-    memset(empty->bytes, 0, length);
+    memset(empty->bytes, 0, length + 1);
     return empty;
 }
 
@@ -25,6 +27,49 @@ static Jim_Obj *Jim_HexString(Jim_Interp *interp, Jim_Obj *s) {
     return hex;
 }
 
+static int unhex(char c) {
+    if (c >= '0' && c <= '9') {
+        return (c - '0');
+    } else if (c >= 'A' && c <= 'F') {
+        return (c - 'A' + 10);
+    } else if (c >= 'a' && c <= 'f') {
+        return (c - 'a' + 10);
+    } else {
+        return -1;
+    }
+}
+
+static Jim_Obj *Jim_Unhex(Jim_Interp *interp, Jim_Obj *hex) {
+    int i,b1,b2;
+    int err = 0;
+    int len = Jim_Length(hex);
+    const char *s = Jim_String(hex);
+
+    if ((len % 2) != 0) {
+        return NULL;
+    }
+
+    Jim_Obj *bin = Jim_EmptyString(interp,len/2);
+
+    for (i=0; i<len/2; i++) {
+        if ((b1 = unhex(s[2*i])) == -1 ||
+            (b2 = unhex(s[2*i+1])) == -1) {
+            ++err;
+            break;
+        } else {
+            bin->bytes[i] = (unsigned char)((b1 * 16) + b2);
+        }
+    }
+
+    if (err > 0) {
+        Jim_FreeNewObj(interp,bin);
+        return NULL;
+    } else {
+        return bin;
+   }
+}
+
+
 static int Hexdump_Cmd(Jim_Interp *interp, int argc,
                                    Jim_Obj *const argv[]) {
     if (argc != 2) {
@@ -35,6 +80,23 @@ static int Hexdump_Cmd(Jim_Interp *interp, int argc,
     Jim_SetResult(interp,Jim_HexString(interp,argv[1]));
 
     return JIM_OK;
+}
+
+static int Unhexdump_Cmd(Jim_Interp *interp, int argc,
+                                   Jim_Obj *const argv[]) {
+    if (argc != 2) {
+        Jim_WrongNumArgs(interp,1,argv,"<string>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *s = Jim_Unhex(interp,argv[1]);
+    if (s == NULL) {
+        Jim_SetResultString(interp,"Invalid hex string",-1);
+        return JIM_ERR;
+    } else {
+        Jim_SetResult(interp,s);
+        return JIM_OK;
+    }
 }
 
 static int RandomBytes_Cmd(Jim_Interp *interp, int argc, 
@@ -133,7 +195,11 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         Jim_ListAppendElement(interp,result,cipher); 
     }
 
-    Jim_Free(msg_pad);
+    rc(msg_pad);
+    rc(nonce);
+    rc(cipher);
+
+    //Jim_Free(msg_pad);
     //Jim_Free(nonce);
     //Jim_Free(cipher);
 
@@ -144,6 +210,7 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 Jim_naclInit(Jim_Interp *interp)
 {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox", SecretBox_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox_open", SecretBoxOpen_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
