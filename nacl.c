@@ -4,7 +4,8 @@
 
 #include "tweetnacl.h"
 
-#define rc(x) printf("Ref Count <%s>: %d\n",#x,x->refCount)
+#define rc(x) printf("Ref Count <%s>: %d\n",#x,x->refCount);
+#define hex(x) printf("%s: %s\n",#x,Jim_String(Jim_HexString(interp,(x))));
 
 static Jim_Obj *Jim_EmptyString(Jim_Interp *interp, int length) {
     Jim_Obj *empty = Jim_NewObj(interp);
@@ -131,17 +132,30 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]
     Jim_Obj *key = argv[1];
     Jim_Obj *nonce = argv[2];
     Jim_Obj *cipher = argv[3];
-    Jim_Obj *msg= Jim_EmptyString(interp,cipher->length);
 
-    crypto_secretbox_open(msg->bytes,
-                          cipher->bytes,
-                          cipher->length,
+    int pad_len = Jim_Length(cipher) + crypto_secretbox_BOXZEROBYTES;
+
+    Jim_Obj *cipher_pad= Jim_EmptyString(interp,pad_len);
+    Jim_Obj *msg_pad= Jim_EmptyString(interp,pad_len);
+
+    memcpy(cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
+           cipher->bytes,
+           cipher->length);
+
+    crypto_secretbox_open(msg_pad->bytes,
+                          cipher_pad->bytes,
+                          pad_len,
                           nonce->bytes,
                           key->bytes);
 
+    Jim_Obj *msg = Jim_NewStringObj(interp,
+                        msg_pad->bytes + crypto_secretbox_ZEROBYTES,
+                        msg_pad->length - crypto_secretbox_ZEROBYTES);
+
     Jim_SetResult(interp,msg);
 
-    //Jim_Free(msg);
+    Jim_DecrRefCount(interp,cipher_pad);
+    Jim_DecrRefCount(interp,msg_pad);
 
     return JIM_OK;
 }
@@ -175,17 +189,21 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     Jim_Obj *nonce = Jim_EmptyString(interp,crypto_secretbox_NONCEBYTES);
     Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
-    Jim_Obj *cipher = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *cipher_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
 
     randombytes(nonce->bytes,crypto_secretbox_NONCEBYTES);
     memcpy(msg_pad->bytes + crypto_secretbox_ZEROBYTES,msg->bytes,len);
 
-    crypto_secretbox(cipher->bytes,
+    crypto_secretbox(cipher_pad->bytes,
                      msg_pad->bytes,
                      msg_pad->length,
                      nonce->bytes,
                      key->bytes);
-            
+
+    Jim_Obj *cipher = Jim_NewStringObj(interp,
+                           cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
+                           cipher_pad->length - crypto_secretbox_BOXZEROBYTES);
+
     Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
     if (hex == 1) {
         Jim_ListAppendElement(interp,result,Jim_HexString(interp,nonce)); 
@@ -195,15 +213,11 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         Jim_ListAppendElement(interp,result,cipher); 
     }
 
-    rc(msg_pad);
-    rc(nonce);
-    rc(cipher);
-
-    //Jim_Free(msg_pad);
-    //Jim_Free(nonce);
-    //Jim_Free(cipher);
-
     Jim_SetResult(interp,result);
+
+    Jim_DecrRefCount(interp,msg_pad);
+    Jim_DecrRefCount(interp,cipher_pad);
+
     return JIM_OK;
 }
 
