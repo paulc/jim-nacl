@@ -22,7 +22,7 @@ static Jim_Obj *Jim_HexString(Jim_Interp *interp, Jim_Obj *s) {
     Jim_Obj *hex = Jim_EmptyString(interp,2 * len);
 
     for (i=0; i<len; i++) {
-        sprintf(hex->bytes+(2*i),"%02x",s->bytes[i]);
+        sprintf(hex->bytes+(2*i),"%02x",(unsigned char) s->bytes[i]);
     }
 
     return hex;

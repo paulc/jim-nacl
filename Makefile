@@ -13,6 +13,8 @@ libjim-nacl.a: nacl.c tweetnacl.c randombytes.c
 
 test:
 	JIMLIB=. $(JIM)/jimsh -e 'package require nacl'
+	JIMLIB=. $(JIM)/jimsh test_hash.tcl
+	JIMLIB=. $(JIM)/jimsh test_secretbox.tcl
 
 clean:
 	rm -f *.o *.so *.a
