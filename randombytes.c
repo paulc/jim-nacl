@@ -8,7 +8,7 @@
 
 static int fd = -1;
 
-void randombytes(unsigned char *ptr,unsigned int length) {
+void randombytes(unsigned char *ptr,unsigned long long length) {
     unsigned int n = 0;
     unsigned int i = 0;
     if (fd == -1) {

@@ -114,7 +114,7 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
 
     Jim_Obj *random = Jim_EmptyString(interp,len);
 
-    randombytes(random->bytes,len);
+    randombytes(random->bytes, (unsigned long long)len);
 
     Jim_SetResult(interp,random);
 
@@ -130,19 +130,19 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]
 
     Jim_Obj *key = argv[1];
     Jim_Obj *nonce = argv[2];
-    Jim_Obj *cipher = argv[3];
+    Jim_Obj *secretbox = argv[3];
 
-    int pad_len = Jim_Length(cipher) + crypto_secretbox_BOXZEROBYTES;
+    int pad_len = Jim_Length(secretbox) + crypto_secretbox_BOXZEROBYTES;
 
-    Jim_Obj *cipher_pad= Jim_EmptyString(interp,pad_len);
+    Jim_Obj *secretbox_pad= Jim_EmptyString(interp,pad_len);
     Jim_Obj *msg_pad= Jim_EmptyString(interp,pad_len);
 
-    memcpy(cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
-           cipher->bytes,
-           cipher->length);
+    memcpy(secretbox_pad->bytes + crypto_secretbox_BOXZEROBYTES,
+           secretbox->bytes,
+           secretbox->length);
 
     int err = crypto_secretbox_open(msg_pad->bytes,
-                                    cipher_pad->bytes,
+                                    secretbox_pad->bytes,
                                     pad_len,
                                     nonce->bytes,
                                     key->bytes);
@@ -157,7 +157,7 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]
         Jim_SetResultString(interp,"ERROR: Invalid secretbox",-1);
     }
 
-    Jim_DecrRefCount(interp,cipher_pad);
+    Jim_DecrRefCount(interp,secretbox_pad);
     Jim_DecrRefCount(interp,msg_pad);
 
     return (err == 0) ? JIM_OK : JIM_ERR;
@@ -166,19 +166,37 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]
 static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     int hex = 0;
+    char buf[10];
+    Jim_Obj *nonce_arg = NULL;
 
-    if (argc > 1 && Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
-        hex = 1;
+    while (argc > 1 && Jim_String(argv[1])[0] == '-') {
+        if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
+            hex = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce")) {
+            if (argc > 2) {
+                if (Jim_Length(argv[2]) != crypto_secretbox_NONCEBYTES) {
+                    snprintf(buf,sizeof(buf),"%d",crypto_secretbox_NONCEBYTES);
+                    Jim_SetResultFormatted(interp,
+                                   "Invalid nonce length [should be %s bytes]",buf);
+                    return JIM_ERR;
+                }
+                nonce_arg = argv[2];
+                --argc;
+                ++argv;
+            } else {
+                goto arg_error;
+            }
+        } else {
+            goto arg_error;
+        }
         --argc;
         ++argv;
     }
 
     if (argc != 3) {
-        Jim_WrongNumArgs(interp,1,argv,"[-hex] <key> <message>");
-        return JIM_ERR;
+        goto arg_error;
     }
 
-    char buf[10];
     if (Jim_Length(argv[1]) != crypto_secretbox_KEYBYTES) {
         snprintf(buf,sizeof(buf),"%d",crypto_secretbox_KEYBYTES);
         Jim_SetResultFormatted(interp,
@@ -190,40 +208,197 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     Jim_Obj *msg = argv[2];
     int len = Jim_Length(msg);
 
-    Jim_Obj *nonce = Jim_EmptyString(interp,crypto_secretbox_NONCEBYTES);
-    Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
-    Jim_Obj *cipher_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *nonce;
 
-    randombytes(nonce->bytes,crypto_secretbox_NONCEBYTES);
+    if (nonce_arg != NULL) {
+        nonce = Jim_DuplicateObj(interp,nonce_arg);
+    } else {
+        nonce = Jim_EmptyString(interp,crypto_secretbox_NONCEBYTES);
+        randombytes(nonce->bytes, (unsigned long long)crypto_secretbox_NONCEBYTES);
+    }
+
+    Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *secretbox_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+
     memcpy(msg_pad->bytes + crypto_secretbox_ZEROBYTES,msg->bytes,len);
 
-    crypto_secretbox(cipher_pad->bytes,
+    crypto_secretbox(secretbox_pad->bytes,
                      msg_pad->bytes,
                      msg_pad->length,
                      nonce->bytes,
                      key->bytes);
 
-    Jim_Obj *cipher = Jim_NewStringObj(interp,
-                       cipher_pad->bytes + crypto_secretbox_BOXZEROBYTES,
-                       cipher_pad->length - crypto_secretbox_BOXZEROBYTES);
+    Jim_Obj *secretbox = Jim_NewStringObj(interp,
+                       secretbox_pad->bytes + crypto_secretbox_BOXZEROBYTES,
+                       secretbox_pad->length - crypto_secretbox_BOXZEROBYTES);
 
     Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
+
     if (hex == 1) {
         Jim_ListAppendElement(interp,result,Jim_HexString(interp,nonce)); 
-        Jim_ListAppendElement(interp,result,Jim_HexString(interp,cipher)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,secretbox)); 
         Jim_DecrRefCount(interp,nonce);
-        Jim_DecrRefCount(interp,cipher);
+        Jim_DecrRefCount(interp,secretbox);
     } else {
         Jim_ListAppendElement(interp,result,nonce); 
-        Jim_ListAppendElement(interp,result,cipher); 
+        Jim_ListAppendElement(interp,result,secretbox); 
     }
 
     Jim_SetResult(interp,result);
 
     Jim_DecrRefCount(interp,msg_pad);
-    Jim_DecrRefCount(interp,cipher_pad);
+    Jim_DecrRefCount(interp,secretbox_pad);
 
     return JIM_OK;
+
+arg_error:
+    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-nonce <nonce>] <key> <message>");
+    return JIM_ERR;
+}
+
+static int BoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    if (argc != 5) {
+        Jim_WrongNumArgs(interp,1,argv,"<pk> <sk> <nonce> <message>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *pk = argv[1];
+    Jim_Obj *sk = argv[2];
+    Jim_Obj *nonce = argv[3];
+    Jim_Obj *box = argv[4];
+
+    int pad_len = Jim_Length(box) + crypto_box_BOXZEROBYTES;
+
+    Jim_Obj *box_pad= Jim_EmptyString(interp,pad_len);
+    Jim_Obj *msg_pad= Jim_EmptyString(interp,pad_len);
+
+    memcpy(box_pad->bytes + crypto_box_BOXZEROBYTES,
+           box->bytes,
+           box->length);
+
+    int err = crypto_box_open(msg_pad->bytes,
+                              box_pad->bytes,
+                              pad_len,
+                              nonce->bytes,
+                              pk->bytes,
+                              sk->bytes);
+
+    if (err == 0) {
+        Jim_Obj *msg = Jim_NewStringObj(interp,
+                        msg_pad->bytes + crypto_box_ZEROBYTES,
+                        msg_pad->length - crypto_box_ZEROBYTES);
+
+        Jim_SetResult(interp,msg);
+    } else {
+        Jim_SetResultString(interp,"ERROR: Invalid box",-1);
+    }
+
+    Jim_DecrRefCount(interp,box_pad);
+    Jim_DecrRefCount(interp,msg_pad);
+
+    return (err == 0) ? JIM_OK : JIM_ERR;
+}
+
+static int Box_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+    Jim_Obj *nonce_arg = NULL;
+
+    while (argc > 1 && Jim_String(argv[1])[0] == '-') {
+        if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
+            hex = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce")) {
+            if (argc > 2) {
+                if (Jim_Length(argv[2]) != crypto_box_NONCEBYTES) {
+                    snprintf(buf,sizeof(buf),"%d",crypto_box_NONCEBYTES);
+                    Jim_SetResultFormatted(interp,
+                           "Invalid nonce length [should be %s bytes]",buf);
+                    return JIM_ERR;
+                }
+                nonce_arg = argv[2];
+                --argc;
+                ++argv;
+            } else {
+                goto arg_error;
+            }
+        } else {
+            goto arg_error;
+        }
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 4) {
+        goto arg_error;
+    }
+
+    Jim_Obj *pk= argv[1];
+    Jim_Obj *sk = argv[2];
+    Jim_Obj *msg = argv[3];
+    int len = Jim_Length(msg);
+
+    if (Jim_Length(pk) != crypto_box_PUBLICKEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_box_PUBLICKEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid public key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    if (Jim_Length(sk) != crypto_box_SECRETKEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_box_SECRETKEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid secret key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    Jim_Obj *nonce;
+
+    if (nonce_arg != NULL) {
+        nonce = Jim_DuplicateObj(interp,nonce_arg);
+    } else {
+        nonce = Jim_EmptyString(interp,crypto_box_NONCEBYTES);
+        randombytes(nonce->bytes, (unsigned long long)crypto_box_NONCEBYTES);
+    }
+
+    Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_box_ZEROBYTES);
+    Jim_Obj *box_pad = Jim_EmptyString(interp,len + crypto_box_ZEROBYTES);
+
+    memcpy(msg_pad->bytes + crypto_box_ZEROBYTES,msg->bytes,len);
+
+    crypto_box(box_pad->bytes,
+               msg_pad->bytes,
+               msg_pad->length,
+               nonce->bytes,
+               pk->bytes,
+               sk->bytes);
+
+    Jim_Obj *box = Jim_NewStringObj(interp,
+                       box_pad->bytes + crypto_box_BOXZEROBYTES,
+                       box_pad->length - crypto_box_BOXZEROBYTES);
+
+    Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
+    if (hex == 1) {
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,nonce)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,box)); 
+        Jim_DecrRefCount(interp,nonce);
+        Jim_DecrRefCount(interp,box);
+    } else {
+        Jim_ListAppendElement(interp,result,nonce); 
+        Jim_ListAppendElement(interp,result,box); 
+    }
+
+    Jim_SetResult(interp,result);
+
+    Jim_DecrRefCount(interp,msg_pad);
+    Jim_DecrRefCount(interp,box_pad);
+
+    return JIM_OK;
+
+arg_error:
+    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-nonce <nonce>] <pk> <sk> <message>");
+    return JIM_ERR;
 }
 
 static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
@@ -257,7 +432,7 @@ static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 }
 
-static int Keypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+static int BoxKeypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     int hex = 0;
 
@@ -275,11 +450,7 @@ static int Keypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     Jim_Obj *pk = Jim_EmptyString(interp,crypto_box_PUBLICKEYBYTES);
     Jim_Obj *sk = Jim_EmptyString(interp,crypto_box_SECRETKEYBYTES);
 
-    printf("Start\n");
-
     crypto_box_keypair(pk->bytes,sk->bytes);
-
-    printf("Done\n");
 
     Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
 
@@ -293,6 +464,8 @@ static int Keypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         Jim_ListAppendElement(interp,result,sk); 
     }
 
+    Jim_SetResult(interp,result);
+
     return JIM_OK;
 }
 
@@ -302,7 +475,9 @@ Jim_naclInit(Jim_Interp *interp)
     Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "hash", Hash_Cmd, NULL, NULL);
-    Jim_CreateCommand(interp, "keypair", Keypair_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "box_keypair", BoxKeypair_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "box", Box_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "box_open", BoxOpen_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox", SecretBox_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox_open", SecretBoxOpen_Cmd, NULL, NULL);
 }
