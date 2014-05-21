@@ -8,6 +8,11 @@ proc shorten {s n} {
     }
 }
 
+proc err {s} {
+    set i [rand [string length $s]]
+    return [string replace $s $i [expr $i + 1] [randombytes 1]]
+}
+
 proc test_secretbox {t k m} {
     set c [secretbox $k $m]
     set d [secretbox_open $k {*}$c ]
@@ -22,8 +27,7 @@ proc test_secretbox_err {t k m} {
     set c [secretbox $k $m]
     set n [lindex $c 0]
     set z [lindex $c 1]
-    set i [rand [string length $z]]
-    set r [string replace $z $i [expr $i + 1] [randombytes 1]]
+    set r [err $z]
     if { [catch {secretbox_open $k $n $r} msg opts] &&
           $msg == "ERROR: Invalid secretbox" } {
         puts "$t: OK"

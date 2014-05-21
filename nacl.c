@@ -177,7 +177,7 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
                 if (Jim_Length(argv[2]) != crypto_secretbox_NONCEBYTES) {
                     snprintf(buf,sizeof(buf),"%d",crypto_secretbox_NONCEBYTES);
                     Jim_SetResultFormatted(interp,
-                                   "Invalid nonce length [should be %s bytes]",buf);
+                           "Invalid nonce length [should be %s bytes]",buf);
                     return JIM_ERR;
                 }
                 nonce_arg = argv[2];
@@ -214,11 +214,14 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         nonce = Jim_DuplicateObj(interp,nonce_arg);
     } else {
         nonce = Jim_EmptyString(interp,crypto_secretbox_NONCEBYTES);
-        randombytes(nonce->bytes, (unsigned long long)crypto_secretbox_NONCEBYTES);
+        randombytes(nonce->bytes, 
+                    (unsigned long long)crypto_secretbox_NONCEBYTES);
     }
 
-    Jim_Obj *msg_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
-    Jim_Obj *secretbox_pad = Jim_EmptyString(interp,len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *msg_pad = Jim_EmptyString(interp,
+                                       len + crypto_secretbox_ZEROBYTES);
+    Jim_Obj *secretbox_pad = Jim_EmptyString(interp,
+                                             len + crypto_secretbox_ZEROBYTES);
 
     memcpy(msg_pad->bytes + crypto_secretbox_ZEROBYTES,msg->bytes,len);
 
@@ -259,7 +262,8 @@ arg_error:
 static int BoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     if (argc != 5) {
-        Jim_WrongNumArgs(interp,1,argv,"<pk> <sk> <nonce> <message>");
+        Jim_WrongNumArgs(interp,1,argv,
+                         "<sender_pk> <recipient_sk> <nonce> <message>");
         return JIM_ERR;
     }
 
@@ -397,7 +401,8 @@ static int Box_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 
 arg_error:
-    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-nonce <nonce>] <pk> <sk> <message>");
+    Jim_WrongNumArgs(interp,1,argv,
+             "[-hex] [-nonce <nonce>] <recipient_pk> <sender_sk> <message>");
     return JIM_ERR;
 }
 
