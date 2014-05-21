@@ -121,7 +121,8 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
     return JIM_OK;
 }
 
-static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, 
+                             Jim_Obj *const argv[]) {
 
     if (argc != 4) {
         Jim_WrongNumArgs(interp,1,argv,"<key> <nonce> <message>");
@@ -448,7 +449,7 @@ static int BoxKeypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     }
 
     if (argc != 1) {
-        Jim_WrongNumArgs(interp,1,argv,"");
+        Jim_WrongNumArgs(interp,1,argv,"[-hex]");
         return JIM_ERR;
     }
 
@@ -474,6 +475,138 @@ static int BoxKeypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 }
 
+static int SignKeypair_Cmd(Jim_Interp *interp, int argc, 
+                           Jim_Obj *const argv[]) {
+
+    int hex = 0;
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 1) {
+        Jim_WrongNumArgs(interp,1,argv,"[-hex]");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *pk = Jim_EmptyString(interp,crypto_sign_PUBLICKEYBYTES);
+    Jim_Obj *sk = Jim_EmptyString(interp,crypto_sign_SECRETKEYBYTES);
+
+    crypto_sign_keypair(pk->bytes,sk->bytes);
+
+    Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
+
+    if (hex == 1) {
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,pk)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,sk)); 
+        Jim_DecrRefCount(interp,pk);
+        Jim_DecrRefCount(interp,sk);
+    } else {
+        Jim_ListAppendElement(interp,result,pk); 
+        Jim_ListAppendElement(interp,result,sk); 
+    }
+
+    Jim_SetResult(interp,result);
+
+    return JIM_OK;
+}
+
+static int Sign_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 3) {
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <sender_sk> <msg>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *sk = argv[1];
+    Jim_Obj *m = argv[2];
+    int mlen = Jim_Length(m);
+    unsigned long long smlen;
+
+    if (Jim_Length(sk) != crypto_sign_SECRETKEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_sign_SECRETKEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid secret key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    Jim_Obj *sm = Jim_EmptyString(interp,mlen + crypto_sign_BYTES);
+
+    crypto_sign(sm->bytes,&smlen,m->bytes,mlen,sk->bytes);
+
+    memset(sm->bytes + (int)smlen, 0, sm->length - (int)smlen);
+    sm->length = (int)smlen;
+
+    if (hex == 1) {
+        Jim_SetResult(interp,Jim_HexString(interp,sm));
+        Jim_DecrRefCount(interp,sm);
+    } else {
+        Jim_SetResult(interp,sm);
+    }
+
+    return JIM_OK;
+}
+
+static int SignOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 3) {
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <sender_pk> <signed_msg>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *pk = argv[1];
+    Jim_Obj *sm = argv[2];
+    int smlen = Jim_Length(sm);
+    unsigned long long mlen;
+
+    if (Jim_Length(pk) != crypto_sign_PUBLICKEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_sign_PUBLICKEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid public key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    Jim_Obj *m = Jim_EmptyString(interp,smlen);
+
+    if (crypto_sign_open(m->bytes,&mlen,sm->bytes,smlen,pk->bytes) == -1) {
+        Jim_DecrRefCount(interp,m);
+        Jim_SetResultString(interp,"ERROR: Invalid signature",-1);
+        return JIM_ERR;
+    }
+
+    memset(m->bytes + (int)mlen, 0, m->length - (int)mlen);
+    m->length = (int)mlen;
+
+    if (hex == 1) {
+        Jim_SetResult(interp,Jim_HexString(interp,m));
+        Jim_DecrRefCount(interp,m);
+    } else {
+        Jim_SetResult(interp,m);
+    }
+
+    return JIM_OK;
+}
+
 Jim_naclInit(Jim_Interp *interp)
 {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
@@ -485,5 +618,8 @@ Jim_naclInit(Jim_Interp *interp)
     Jim_CreateCommand(interp, "box_open", BoxOpen_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox", SecretBox_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "secretbox_open", SecretBoxOpen_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "sign_keypair", SignKeypair_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "sign", Sign_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "sign_open", SignOpen_Cmd, NULL, NULL);
 }
 

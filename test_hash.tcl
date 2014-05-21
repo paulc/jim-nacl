@@ -3,9 +3,9 @@ package require nacl
 proc test_hash {in out} {
     set h [hash -hex $in]
     if { $h == $out } {
-        puts "[string map {\n \\n} $in]: OK"
+        puts "hash: OK"
     } else {
-        puts "[string map {\n \\n} $in]: FAILED"
+        puts "hash: FAILED"
     }
 }
 
