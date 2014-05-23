@@ -11,19 +11,11 @@ proc err {s} {
 }
 
 proc test_box {t l} {
-    set sender [ box_keypair ]
-    set sender_sk [lindex $sender 0]
-    set sender_pk [lindex $sender 1]
-
-    set recipient [ box_keypair ]
-    set recipient_sk [lindex $sender 0]
-    set recipient_pk [lindex $sender 1]
-
+    lassign [box_keypair] sender_pk sender_sk
+    lassign [box_keypair] recipient_pk recipient_sk
     set data [ randombytes $l ]
-
-    set m [ box $recipient_pk $sender_sk $data ]
-
-    if { [ box_open $sender_pk $recipient_sk {*}$m ] == $data } {
+    set c [ box $recipient_pk $sender_sk $data ]
+    if { [ box_open $sender_pk $recipient_sk {*}$c ] == $data } {
         puts "$t: OK"
     } else {
         puts "$t: FAILED"
@@ -31,16 +23,9 @@ proc test_box {t l} {
 }
 
 proc test_box_err {t l} {
-    set sender [ box_keypair ]
-    set sender_sk [lindex $sender 0]
-    set sender_pk [lindex $sender 1]
-
-    set recipient [ box_keypair ]
-    set recipient_sk [lindex $sender 0]
-    set recipient_pk [lindex $sender 1]
-
+    lassign [box_keypair] sender_pk sender_sk
+    lassign [box_keypair] recipient_pk recipient_sk
     set data [ randombytes $l ]
-
     set c [ box $recipient_pk $sender_sk $data ]
     set n [ lindex $c 0 ]
     set z [ err [ lindex $c 1 ]]

@@ -173,20 +173,17 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     while (argc > 1 && Jim_String(argv[1])[0] == '-') {
         if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
             hex = 1;
-        } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce")) {
-            if (argc > 2) {
-                if (Jim_Length(argv[2]) != crypto_secretbox_NONCEBYTES) {
-                    snprintf(buf,sizeof(buf),"%d",crypto_secretbox_NONCEBYTES);
-                    Jim_SetResultFormatted(interp,
-                           "Invalid nonce length [should be %s bytes]",buf);
-                    return JIM_ERR;
-                }
-                nonce_arg = argv[2];
-                --argc;
-                ++argv;
-            } else {
-                goto arg_error;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce") &&
+                   argc > 2) {
+            if (Jim_Length(argv[2]) != crypto_secretbox_NONCEBYTES) {
+                snprintf(buf,sizeof(buf),"%d",crypto_secretbox_NONCEBYTES);
+                Jim_SetResultFormatted(interp,
+                       "Invalid nonce length [should be %s bytes]",buf);
+                return JIM_ERR;
             }
+            nonce_arg = argv[2];
+            --argc;
+            ++argv;
         } else {
             goto arg_error;
         }

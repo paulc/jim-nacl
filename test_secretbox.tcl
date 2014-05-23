@@ -24,9 +24,7 @@ proc test_secretbox {t k m} {
 }
 
 proc test_secretbox_err {t k m} {
-    set c [secretbox $k $m]
-    set n [lindex $c 0]
-    set z [lindex $c 1]
+    lassign [secretbox $k $m] n z
     set r [err $z]
     if { [catch {secretbox_open $k $n $r} msg opts] &&
           $msg == "ERROR: Invalid secretbox" } {
