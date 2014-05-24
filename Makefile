@@ -11,7 +11,7 @@ nacl.so: nacl.c tweetnacl.c randombytes.c crypto_hash.c
 libjim-nacl.a: nacl.c tweetnacl.c randombytes.c crypto_hash.c
 	$(JIM)/build-jim-ext -I$(JIM) -L$(JIM) --static $(BUILDOPTS) $^
 
-test:
+test: nacl.so
 	JIMLIB=. $(JIM)/jimsh -e 'package require nacl'
 	JIMLIB=. $(JIM)/jimsh test_hash.tcl
 	JIMLIB=. $(JIM)/jimsh test_box.tcl
