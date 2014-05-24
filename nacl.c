@@ -124,8 +124,15 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
 static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, 
                              Jim_Obj *const argv[]) {
 
+    int hex = 0;
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
     if (argc != 4) {
-        Jim_WrongNumArgs(interp,1,argv,"<key> <nonce> <message>");
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <key> <nonce> <message>");
         return JIM_ERR;
     }
 
@@ -144,7 +151,7 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc,
 
     int err = crypto_secretbox_open(msg_pad->bytes,
                                     secretbox_pad->bytes,
-                                    pad_len,
+                                    (unsigned long long)pad_len,
                                     nonce->bytes,
                                     key->bytes);
 
@@ -153,7 +160,12 @@ static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc,
                         msg_pad->bytes + crypto_secretbox_ZEROBYTES,
                         msg_pad->length - crypto_secretbox_ZEROBYTES);
 
-        Jim_SetResult(interp,msg);
+        if (hex) {
+            Jim_SetResult(interp,Jim_HexString(interp,msg)); 
+            Jim_DecrRefCount(interp,msg);
+        } else {
+            Jim_SetResult(interp,msg);
+        }
     } else {
         Jim_SetResultString(interp,"ERROR: Invalid secretbox",-1);
     }
@@ -217,15 +229,15 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     }
 
     Jim_Obj *msg_pad = Jim_EmptyString(interp,
-                                       len + crypto_secretbox_ZEROBYTES);
+                                     len + crypto_secretbox_ZEROBYTES);
     Jim_Obj *secretbox_pad = Jim_EmptyString(interp,
-                                             len + crypto_secretbox_ZEROBYTES);
+                                     len + crypto_secretbox_ZEROBYTES);
 
     memcpy(msg_pad->bytes + crypto_secretbox_ZEROBYTES,msg->bytes,len);
 
     crypto_secretbox(secretbox_pad->bytes,
                      msg_pad->bytes,
-                     msg_pad->length,
+                     (unsigned long long)msg_pad->length,
                      nonce->bytes,
                      key->bytes);
 
@@ -259,9 +271,15 @@ arg_error:
 
 static int BoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
+    int hex = 0;
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
     if (argc != 5) {
         Jim_WrongNumArgs(interp,1,argv,
-                         "<sender_pk> <recipient_sk> <nonce> <message>");
+                     "[-hex] <sender_pk> <recipient_sk> <nonce> <message>");
         return JIM_ERR;
     }
 
@@ -281,7 +299,7 @@ static int BoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     int err = crypto_box_open(msg_pad->bytes,
                               box_pad->bytes,
-                              pad_len,
+                              (unsigned long long)pad_len,
                               nonce->bytes,
                               pk->bytes,
                               sk->bytes);
@@ -291,7 +309,12 @@ static int BoxOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
                         msg_pad->bytes + crypto_box_ZEROBYTES,
                         msg_pad->length - crypto_box_ZEROBYTES);
 
-        Jim_SetResult(interp,msg);
+        if (hex) {
+            Jim_SetResult(interp,Jim_HexString(interp,msg)); 
+            Jim_DecrRefCount(interp,msg);
+        } else {
+            Jim_SetResult(interp,msg);
+        }
     } else {
         Jim_SetResultString(interp,"ERROR: Invalid box",-1);
     }
@@ -371,7 +394,7 @@ static int Box_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     crypto_box(box_pad->bytes,
                msg_pad->bytes,
-               msg_pad->length,
+               (unsigned long long)msg_pad->length,
                nonce->bytes,
                pk->bytes,
                sk->bytes);
@@ -423,7 +446,7 @@ static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     Jim_Obj *hash = Jim_EmptyString(interp,crypto_hash_BYTES);
 
-    crypto_hash(hash->bytes,msg->bytes,msg->length);
+    crypto_hash(hash->bytes,msg->bytes,(unsigned long long)msg->length);
 
     if (hex == 1) {
         Jim_SetResult(interp,Jim_HexString(interp,hash));
@@ -540,7 +563,7 @@ static int Sign_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     Jim_Obj *sm = Jim_EmptyString(interp,mlen + crypto_sign_BYTES);
 
-    crypto_sign(sm->bytes,&smlen,m->bytes,mlen,sk->bytes);
+    crypto_sign(sm->bytes,&smlen,m->bytes,(unsigned long long)mlen,sk->bytes);
 
     memset(sm->bytes + (int)smlen, 0, sm->length - (int)smlen);
     sm->length = (int)smlen;
@@ -604,6 +627,85 @@ static int SignOpen_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 }
 
+static int Auth_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+
+    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
+        hex = 1;
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 3) {
+        Jim_WrongNumArgs(interp,1,argv,"[-hex] <key> <msg>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *k = argv[1];
+    Jim_Obj *m = argv[2];
+    int mlen = Jim_Length(m);
+
+    if (Jim_Length(k) != crypto_auth_KEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_auth_KEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    Jim_Obj *a = Jim_EmptyString(interp,crypto_auth_BYTES);
+
+    crypto_auth(a->bytes,m->bytes,(unsigned long long)mlen,k->bytes);
+
+    if (hex == 1) {
+        Jim_SetResult(interp,Jim_HexString(interp,a));
+        Jim_DecrRefCount(interp,a);
+    } else {
+        Jim_SetResult(interp,a);
+    }
+
+    return JIM_OK;
+}
+
+static int AuthVerify_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+
+    if (argc != 4) {
+        Jim_WrongNumArgs(interp,1,argv,"<key> <auth> <msg>");
+        return JIM_ERR;
+    }
+
+    Jim_Obj *k = argv[1];
+    Jim_Obj *a = argv[2];
+    Jim_Obj *m = argv[3];
+    int mlen = Jim_Length(m);
+
+    if (Jim_Length(k) != crypto_auth_KEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_auth_KEYBYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    if (Jim_Length(a) != crypto_auth_BYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_auth_BYTES);
+        Jim_SetResultFormatted(interp,
+                   "Invalid auth length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    if (crypto_auth_verify(a->bytes,m->bytes,
+                           (unsigned long long)mlen,k->bytes) == -1) {
+        Jim_SetResultString(interp,"ERROR: Invalid authenticator",-1);
+        return JIM_ERR;
+    } else {
+        return JIM_OK;
+    }
+}
+
 Jim_naclInit(Jim_Interp *interp)
 {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
@@ -618,5 +720,7 @@ Jim_naclInit(Jim_Interp *interp)
     Jim_CreateCommand(interp, "sign_keypair", SignKeypair_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "sign", Sign_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "sign_open", SignOpen_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "auth", Auth_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "auth_verify", AuthVerify_Cmd, NULL, NULL);
 }
 
