@@ -121,6 +121,83 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
     return JIM_OK;
 }
 
+static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
+
+    int hex = 0;
+    char buf[10];
+    Jim_Obj *nonce_arg = NULL;
+
+    while (argc > 1 && Jim_String(argv[1])[0] == '-') {
+        if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
+            hex = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce") &&
+                       argc > 2) {
+            if (Jim_Length(argv[2]) != crypto_stream_NONCEBYTES) {
+                snprintf(buf,sizeof(buf),"%d",crypto_stream_NONCEBYTES);
+                Jim_SetResultFormatted(interp,
+                       "Invalid nonce length [should be %s bytes]",buf);
+                return JIM_ERR;
+            }
+            nonce_arg = argv[2];
+            --argc;
+            ++argv;
+        } else {
+            goto arg_error;
+        }
+        --argc;
+        ++argv;
+    }
+
+    if (argc != 3) {
+        goto arg_error;
+    }
+
+    if (Jim_Length(argv[1]) != crypto_stream_KEYBYTES) {
+        snprintf(buf,sizeof(buf),"%d",crypto_stream_KEYBYTES);
+        Jim_SetResultFormatted(interp,
+                               "Invalid key length [should be %s bytes]",buf);
+        return JIM_ERR;
+    }
+
+    Jim_Obj *k = argv[1];
+    Jim_Obj *m = argv[2];
+    int mlen = Jim_Length(m);
+
+    Jim_Obj *n;
+
+    if (nonce_arg != NULL) {
+        n = Jim_DuplicateObj(interp,nonce_arg);
+    } else {
+        n = Jim_EmptyString(interp,crypto_stream_NONCEBYTES);
+        randombytes(n->bytes,(unsigned long long)crypto_stream_NONCEBYTES);
+    }
+
+    Jim_Obj *c = Jim_EmptyString(interp,mlen);
+
+    crypto_stream_xor(c->bytes, m->bytes, (unsigned long long)mlen,
+                         n->bytes, k->bytes);
+
+    Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
+
+    if (hex == 1) {
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,n)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,m)); 
+        Jim_DecrRefCount(interp,n);
+        Jim_DecrRefCount(interp,m);
+    } else {
+        Jim_ListAppendElement(interp,result,n); 
+        Jim_ListAppendElement(interp,result,m); 
+    }
+
+    Jim_SetResult(interp,result);
+
+    return JIM_OK;
+
+arg_error:
+    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-nonce <nonce>] <key> <message>");
+    return JIM_ERR;
+}
+
 static int SecretBoxOpen_Cmd(Jim_Interp *interp, int argc, 
                              Jim_Obj *const argv[]) {
 
@@ -712,6 +789,7 @@ Jim_naclInit(Jim_Interp *interp)
     Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "hash", Hash_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "stream", Stream_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "box_keypair", BoxKeypair_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "box", Box_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "box_open", BoxOpen_Cmd, NULL, NULL);

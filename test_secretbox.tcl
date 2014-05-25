@@ -163,10 +163,10 @@ if { [ secretbox_open $k2 $n2 $m2 ] == $o2 } {
     puts "secretbox_open: FAILED"
 }
 
-test_secretbox "rand-10" [randombytes 32] [randombytes 10]
-test_secretbox "rand-1000" [randombytes 32] [randombytes 1000]
-test_secretbox "rand-100000" [randombytes 32] [randombytes 100000]
+test_secretbox "secretbox-rand-10" [randombytes 32] [randombytes 10]
+test_secretbox "secretbox-rand-1000" [randombytes 32] [randombytes 1000]
+test_secretbox "secretbox-rand-100000" [randombytes 32] [randombytes 100000]
 
-test_secretbox_err "rand-10-err" [randombytes 32] [randombytes 10]
-test_secretbox_err "rand-100-err" [randombytes 32] [randombytes 10]
-test_secretbox_err "rand-1000-err" [randombytes 32] [randombytes 10]
+test_secretbox_err "secretbox-rand-10-err" [randombytes 32] [randombytes 10]
+test_secretbox_err "secretbox-rand-100-err" [randombytes 32] [randombytes 10]
+test_secretbox_err "secretbox-rand-1000-err" [randombytes 32] [randombytes 10]
