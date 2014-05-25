@@ -124,12 +124,19 @@ static int RandomBytes_Cmd(Jim_Interp *interp, int argc,
 static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     int hex = 0;
+    long keygen = 0;
     char buf[10];
     Jim_Obj *nonce_arg = NULL;
-
     while (argc > 1 && Jim_String(argv[1])[0] == '-') {
         if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
             hex = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-keygen")) {
+            if (Jim_GetLong(interp, argv[2], &keygen) != JIM_OK) {
+                Jim_SetResultString(interp,"Invalid keygen length",-1);
+                return JIM_ERR;
+            }
+            --argc;
+            ++argv;
         } else if (Jim_CompareStringImmediate(interp, argv[1], "-nonce") &&
                        argc > 2) {
             if (Jim_Length(argv[2]) != crypto_stream_NONCEBYTES) {
@@ -148,8 +155,14 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         ++argv;
     }
 
-    if (argc != 3) {
-        goto arg_error;
+    if (keygen == 0) {
+        if (argc != 3) {
+            goto arg_error;
+        }
+    } else {
+        if (argc != 2) {
+            goto arg_error;
+        }
     }
 
     if (Jim_Length(argv[1]) != crypto_stream_KEYBYTES) {
@@ -158,10 +171,6 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
                                "Invalid key length [should be %s bytes]",buf);
         return JIM_ERR;
     }
-
-    Jim_Obj *k = argv[1];
-    Jim_Obj *m = argv[2];
-    int mlen = Jim_Length(m);
 
     Jim_Obj *n;
 
@@ -172,10 +181,22 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         randombytes(n->bytes,(unsigned long long)crypto_stream_NONCEBYTES);
     }
 
-    Jim_Obj *c = Jim_EmptyString(interp,mlen);
+    Jim_Obj *k = argv[1];
+    Jim_Obj *m;
+    Jim_Obj *c;
 
-    crypto_stream_xor(c->bytes, m->bytes, (unsigned long long)mlen,
-                         n->bytes, k->bytes);
+    if (keygen == 0) {
+        m = argv[2];
+        int mlen = Jim_Length(m);
+        c = Jim_EmptyString(interp,mlen);
+
+        crypto_stream_xor(c->bytes, m->bytes, (unsigned long long)mlen,
+                             n->bytes, k->bytes);
+    } else {
+        c = Jim_EmptyString(interp,keygen);
+        crypto_stream(c->bytes, (unsigned long long)keygen,
+                             n->bytes, k->bytes);
+    }
 
     Jim_Obj *result = Jim_NewListObj(interp,NULL,0);
 
@@ -194,7 +215,8 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     return JIM_OK;
 
 arg_error:
-    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-nonce <nonce>] <key> <message>");
+    Jim_WrongNumArgs(interp,1,argv,
+            "[-hex] [-nonce <nonce>] [-keygen <len>] <key> [<message>]");
     return JIM_ERR;
 }
 
@@ -804,8 +826,7 @@ static int AuthVerify_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     }
 }
 
-Jim_naclInit(Jim_Interp *interp)
-{
+Jim_naclInit(Jim_Interp *interp) {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);

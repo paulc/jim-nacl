@@ -76,7 +76,7 @@ if { [lindex [stream -nonce $n $k [string repeat \x00 32]] 1] == $out } {
     puts "Stream: FAILED"
 }
 
-set z [lindex [stream -nonce $n $k [string repeat \x00 4194304]] 1]
+set z [lindex [stream -nonce $n -keygen 4194304 $k] 1]
 if { [hash -hex -sha256 $z] == $hash_4m } {
     puts "Stream (4M): OK"
 } else {
