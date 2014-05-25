@@ -5,7 +5,7 @@
 #include "tweetnacl.h"
 
 #define rc(x) printf("Ref Count <%s>: %d\n",#x,x->refCount);
-#define hex(x) printf("%s: %s\n",#x,Jim_String(Jim_HexString(interp,(x))));
+#define hd(x) printf("%s: %s\n",#x,Jim_String(Jim_HexString(interp,(x))));
 
 static Jim_Obj *Jim_EmptyString(Jim_Interp *interp, int length) {
     Jim_Obj *empty = Jim_NewObj(interp);
@@ -181,12 +181,12 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     if (hex == 1) {
         Jim_ListAppendElement(interp,result,Jim_HexString(interp,n)); 
-        Jim_ListAppendElement(interp,result,Jim_HexString(interp,m)); 
+        Jim_ListAppendElement(interp,result,Jim_HexString(interp,c)); 
         Jim_DecrRefCount(interp,n);
-        Jim_DecrRefCount(interp,m);
+        Jim_DecrRefCount(interp,c);
     } else {
         Jim_ListAppendElement(interp,result,n); 
-        Jim_ListAppendElement(interp,result,m); 
+        Jim_ListAppendElement(interp,result,c); 
     }
 
     Jim_SetResult(interp,result);
@@ -507,23 +507,39 @@ arg_error:
 static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 
     int hex = 0;
+    int sha256 = 0;
 
-    if (argc > 1 && Jim_CompareStringImmediate(interp,argv[1],"-hex")) {
-        hex = 1;
+    while (argc > 1 && Jim_String(argv[1])[0] == '-') {
+        if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
+            hex = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-sha256")) {
+            sha256 = 1;
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-sha512")) {
+            sha256 = 0;
+        } else {
+            goto arg_error;
+        }
         --argc;
         ++argv;
     }
 
     if (argc != 2) {
-        Jim_WrongNumArgs(interp,1,argv,"[-hex] <message>");
-        return JIM_ERR;
+        goto arg_error;
     }
 
     Jim_Obj *msg = argv[1];
 
-    Jim_Obj *hash = Jim_EmptyString(interp,crypto_hash_BYTES);
-
-    crypto_hash(hash->bytes,msg->bytes,(unsigned long long)msg->length);
+    Jim_Obj *hash;
+    
+    if (sha256) {
+        hash = Jim_EmptyString(interp,crypto_hash_sha256_BYTES);
+        crypto_hash_sha256(hash->bytes,msg->bytes,
+                                (unsigned long long)msg->length);
+    } else {
+        hash = Jim_EmptyString(interp,crypto_hash_sha512_BYTES);
+        crypto_hash(hash->bytes,msg->bytes,
+                                (unsigned long long)msg->length);
+    }
 
     if (hex == 1) {
         Jim_SetResult(interp,Jim_HexString(interp,hash));
@@ -533,6 +549,11 @@ static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     }
 
     return JIM_OK;
+
+arg_error:
+    Jim_WrongNumArgs(interp,1,argv,"[-hex] [-sha256|-sha512] <message>");
+    return JIM_ERR;
+
 }
 
 static int BoxKeypair_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
