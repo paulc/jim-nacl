@@ -70,7 +70,7 @@ set out_xor [ bytes {
 
 set hash_4m 662b9d0e3463029156069b12f918691a98f7dfb2ca0393c96bbfc6b1fbd630a2
 
-if { [lindex [stream -nonce $n $k [string repeat \x00 32]] 1] == $out } {
+if { [lindex [stream -nonce $n -keygen 32 $k] 1] == $out } {
     puts "Stream: OK"
 } else {
     puts "Stream: FAILED"
