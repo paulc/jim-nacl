@@ -149,7 +149,7 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
             --argc;
             ++argv;
         } else {
-            goto arg_error;
+            break;
         }
         --argc;
         ++argv;
@@ -296,7 +296,7 @@ static int SecretBox_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
             --argc;
             ++argv;
         } else {
-            goto arg_error;
+            break;
         }
         --argc;
         ++argv;
@@ -448,7 +448,7 @@ static int Box_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
                 goto arg_error;
             }
         } else {
-            goto arg_error;
+            break;
         }
         --argc;
         ++argv;
@@ -539,7 +539,7 @@ static int Hash_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
         } else if (Jim_CompareStringImmediate(interp, argv[1], "-sha512")) {
             sha256 = 0;
         } else {
-            goto arg_error;
+            break;
         }
         --argc;
         ++argv;

@@ -62,7 +62,7 @@ proc test_sign {l} {
 for {set i 0} {$i < 1000} {incr i} {
     puts "=== Count: $i"
     foreach t {test_auth test_stream test_box test_secretbox test_sign} {
-        foreach l {0 10 100 1000 10000} {
+        foreach l {0 10 100 1000 10000 100000 1000000} {
             $t $l
         }
     }
