@@ -62,6 +62,7 @@ proc test_sign {l} {
 set count 10
 set max 10000
 set tests [list auth stream box secretbox sign]
+set usage "Usage: $argv0 \[-count <n>\] \[-max <n>\] \[-tests auth|stream|box|secretbox|sign\]"
 
 set i 0
 
@@ -76,14 +77,14 @@ while {[string index [lindex $argv $i] 0] == "-"} {
         incr i
         set tests [split [lindex $argv $i] " ,|"]
     } else {
-        puts "Usage: $argv0 \[-count <n>\] \[-max <n>\] \[-tests auth|stream|box|secretbox|sign\]"
+        puts $usage
         exit 1
     }
     incr i
 }
 
 if {[llength $argv] != $i} {
-    puts "Usage: $argv0 \[-count <n>\] \[-max <n>\]"
+    puts $usage
     exit 1
 }
 
