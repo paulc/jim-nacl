@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "tweetnacl.h"
+#include "zbase32.h"
 
 #define rc(x) printf("Ref Count <%s>: %d\n",#x,x->refCount);
 #define hd(x) printf("%s: %s\n",#x,Jim_String(Jim_HexString(interp,(x))));
@@ -99,6 +100,50 @@ static int Unhexdump_Cmd(Jim_Interp *interp, int argc,
     }
 }
 
+static Jim_Obj *Jim_Zbase32String(Jim_Interp *interp, Jim_Obj *s) {
+    int len = Jim_Length(s);
+    Jim_Obj *encoded = Jim_EmptyString(interp,2 * len);
+    encoded->length = zbase32_encode((unsigned char *)encoded->bytes,
+                                     (const unsigned char *)Jim_String(s),
+                                     (unsigned int)len*8);
+    return encoded;
+}
+
+static Jim_Obj *Jim_UnZbase32String(Jim_Interp *interp, Jim_Obj *s) {
+    int len = Jim_Length(s);
+    int bits = len * 5;
+    bits -= bits % 8;
+    Jim_Obj *decoded = Jim_EmptyString(interp,len);
+    decoded->length = zbase32_decode((unsigned char *)decoded->bytes,
+                                     (const unsigned char *)Jim_String(s),
+                                     bits);
+    return decoded;
+}
+
+static int UnZbase32_Cmd(Jim_Interp *interp, int argc,
+                         Jim_Obj *const argv[]) {
+    if (argc != 2) {
+        Jim_WrongNumArgs(interp,1,argv,"<string>");
+        return JIM_ERR;
+    }
+
+    Jim_SetResult(interp,Jim_UnZbase32String(interp,argv[1]));
+
+    return JIM_OK;
+}
+
+
+static int Zbase32_Cmd(Jim_Interp *interp, int argc,
+                                   Jim_Obj *const argv[]) {
+    if (argc != 2) {
+        Jim_WrongNumArgs(interp,1,argv,"<string>");
+        return JIM_ERR;
+    }
+
+    Jim_SetResult(interp,Jim_Zbase32String(interp,argv[1]));
+
+    return JIM_OK;
+}
 static int RandomBytes_Cmd(Jim_Interp *interp, int argc, 
                            Jim_Obj *const argv[]) {
     if (argc != 2) {
@@ -130,7 +175,8 @@ static int Stream_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
     while (argc > 1 && Jim_String(argv[1])[0] == '-') {
         if (Jim_CompareStringImmediate(interp, argv[1], "-hex")) {
             hex = 1;
-        } else if (Jim_CompareStringImmediate(interp, argv[1], "-keygen")) {
+        } else if (Jim_CompareStringImmediate(interp, argv[1], "-keygen") &&
+                       argc > 2) {
             if (Jim_GetLong(interp, argv[2], &keygen) != JIM_OK) {
                 Jim_SetResultString(interp,"Invalid keygen length",-1);
                 return JIM_ERR;
@@ -829,6 +875,8 @@ static int AuthVerify_Cmd(Jim_Interp *interp, int argc, Jim_Obj *const argv[]) {
 Jim_naclInit(Jim_Interp *interp) {
     Jim_CreateCommand(interp, "hexdump", Hexdump_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "unhexdump", Unhexdump_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "zbase32", Zbase32_Cmd, NULL, NULL);
+    Jim_CreateCommand(interp, "unzbase32", UnZbase32_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "randombytes", RandomBytes_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "hash", Hash_Cmd, NULL, NULL);
     Jim_CreateCommand(interp, "stream", Stream_Cmd, NULL, NULL);

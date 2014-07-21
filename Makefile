@@ -5,10 +5,10 @@ all: nacl.so
 
 static: libjim-nacl.a
 
-nacl.so: nacl.c tweetnacl.c randombytes.c crypto_auth.c sha256.c
+nacl.so: nacl.c tweetnacl.c randombytes.c crypto_auth.c sha256.c zbase32.c
 	$(JIM)/build-jim-ext -I$(JIM) -L$(JIM) $(BUILDOPTS) $^
 
-libjim-nacl.a: nacl.c tweetnacl.c randombytes.c crypto_auth.c sha256.c
+libjim-nacl.a: nacl.c tweetnacl.c randombytes.c crypto_auth.c sha256.c zbase32.c
 	$(JIM)/build-jim-ext -I$(JIM) -L$(JIM) --static $(BUILDOPTS) $^
 
 test: nacl.so
